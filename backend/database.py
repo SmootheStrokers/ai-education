@@ -45,6 +45,19 @@ async def init_db():
             await db.execute("ALTER TABLE agent_runs ADD COLUMN step_index INTEGER")
         except Exception:
             pass
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )
+        """)
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS run_tags (
+                run_id INTEGER NOT NULL,
+                tag_id INTEGER NOT NULL,
+                PRIMARY KEY (run_id, tag_id)
+            )
+        """)
         await db.commit()
 
 
@@ -152,6 +165,58 @@ async def get_pipeline_agent_runs(pipeline_run_id: int) -> list[dict]:
         cursor = await db.execute(
             "SELECT * FROM agent_runs WHERE pipeline_run_id = ? ORDER BY step_index",
             (pipeline_run_id,),
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def add_tag_to_run(run_id: int, tag_name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        # Ensure tag exists
+        await db.execute("INSERT OR IGNORE INTO tags (name) VALUES (?)", (tag_name,))
+        cursor = await db.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+        tag_row = await cursor.fetchone()
+        tag_id = tag_row[0]
+        await db.execute("INSERT OR IGNORE INTO run_tags (run_id, tag_id) VALUES (?, ?)", (run_id, tag_id))
+        await db.commit()
+
+
+async def remove_tag_from_run(run_id: int, tag_name: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT id FROM tags WHERE name = ?", (tag_name,))
+        tag_row = await cursor.fetchone()
+        if tag_row:
+            await db.execute("DELETE FROM run_tags WHERE run_id = ? AND tag_id = ?", (run_id, tag_row[0]))
+            await db.commit()
+
+
+async def get_run_tags(run_id: int) -> list[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "SELECT t.name FROM tags t JOIN run_tags rt ON t.id = rt.tag_id WHERE rt.run_id = ?",
+            (run_id,),
+        )
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def list_all_tags() -> list[str]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute("SELECT name FROM tags ORDER BY name")
+        rows = await cursor.fetchall()
+        return [row[0] for row in rows]
+
+
+async def list_runs_by_tag(tag_name: str, limit: int = 50) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            """SELECT ar.* FROM agent_runs ar
+               JOIN run_tags rt ON ar.id = rt.run_id
+               JOIN tags t ON rt.tag_id = t.id
+               WHERE t.name = ?
+               ORDER BY ar.created_at DESC LIMIT ?""",
+            (tag_name, limit),
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from database import (
     create_run, complete_run, fail_run, get_run, list_runs,
     create_pipeline_run, get_pipeline_run, list_pipeline_runs, get_pipeline_agent_runs,
+    add_tag_to_run, remove_tag_from_run, get_run_tags, list_all_tags, list_runs_by_tag,
 )
 from pipeline_executor import execute_pipeline
 from agents import AGENT_REGISTRY
@@ -24,6 +25,10 @@ class AgentRunRequest(BaseModel):
 class PipelineRunRequest(BaseModel):
     name: str
     steps: list[dict]
+
+
+class TagRequest(BaseModel):
+    tag: str
 
 
 @router.get("/agents")
@@ -168,11 +173,18 @@ async def get_pipeline_detail(pipeline_run_id: int):
     return {"pipeline_run": pipeline_run, "agent_runs": agent_runs}
 
 
+@router.get("/tags")
+async def get_tags():
+    """List all tags."""
+    return await list_all_tags()
+
+
 @router.get("/runs")
-async def get_runs(agent_type: str | None = None, limit: int = 50):
-    """List agent runs, optionally filtered by type."""
-    runs = await list_runs(agent_type=agent_type, limit=limit)
-    return runs
+async def get_runs(agent_type: str | None = None, tag: str | None = None, limit: int = 50):
+    """List agent runs, optionally filtered by type or tag."""
+    if tag:
+        return await list_runs_by_tag(tag, limit=limit)
+    return await list_runs(agent_type=agent_type, limit=limit)
 
 
 @router.get("/runs/{run_id}")
@@ -217,3 +229,23 @@ async def download_run_html(run_id: int):
         media_type="text/html",
         filename=filename,
     )
+
+
+@router.post("/runs/{run_id}/tags")
+async def add_tag(run_id: int, request: TagRequest):
+    """Add a tag to a run."""
+    await add_tag_to_run(run_id, request.tag)
+    return {"status": "ok"}
+
+
+@router.get("/runs/{run_id}/tags")
+async def get_tags_for_run(run_id: int):
+    """Get all tags for a run."""
+    return await get_run_tags(run_id)
+
+
+@router.delete("/runs/{run_id}/tags/{tag_name}")
+async def remove_tag(run_id: int, tag_name: str):
+    """Remove a tag from a run."""
+    await remove_tag_from_run(run_id, tag_name)
+    return {"status": "ok"}
