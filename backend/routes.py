@@ -7,6 +7,7 @@ from pydantic import BaseModel
 from database import create_run, complete_run, fail_run, get_run, list_runs
 from agents import AGENT_REGISTRY
 from html_generator import generate_html, save_html
+from presets import get_all_presets, get_preset_by_id
 
 router = APIRouter(prefix="/api")
 
@@ -71,6 +72,21 @@ async def get_agents():
         },
     }
     return agents
+
+
+@router.get("/presets")
+async def list_presets():
+    """List industry presets with pre-configured agent parameters."""
+    return get_all_presets()
+
+
+@router.get("/presets/{preset_id}")
+async def get_preset(preset_id: str):
+    """Get a specific industry preset."""
+    preset = get_preset_by_id(preset_id)
+    if not preset:
+        raise HTTPException(status_code=404, detail=f"Preset not found: {preset_id}")
+    return preset
 
 
 @router.post("/agents/run")
