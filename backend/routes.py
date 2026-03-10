@@ -4,7 +4,11 @@ import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
-from database import create_run, complete_run, fail_run, get_run, list_runs
+from database import (
+    create_run, complete_run, fail_run, get_run, list_runs,
+    create_pipeline_run, get_pipeline_run, list_pipeline_runs, get_pipeline_agent_runs,
+)
+from pipeline_executor import execute_pipeline
 from agents import AGENT_REGISTRY
 from html_generator import generate_html, save_html
 from presets import get_all_presets, get_preset_by_id
@@ -15,6 +19,11 @@ router = APIRouter(prefix="/api")
 class AgentRunRequest(BaseModel):
     agent_type: str
     params: dict
+
+
+class PipelineRunRequest(BaseModel):
+    name: str
+    steps: list[dict]
 
 
 @router.get("/agents")
@@ -129,6 +138,34 @@ async def _execute_agent(run_id: int, agent_type: str, params: dict):
         await complete_run(run_id, result, html_output_path=html_path)
     except Exception as e:
         await fail_run(run_id, str(e))
+
+
+@router.post("/pipelines/run")
+async def run_pipeline(request: PipelineRunRequest):
+    """Trigger a pipeline run. Returns immediately with a pipeline run ID."""
+    pipeline_run_id = await create_pipeline_run(
+        request.name, json.dumps(request.steps)
+    )
+    asyncio.create_task(
+        execute_pipeline(pipeline_run_id, request.name, request.steps)
+    )
+    return {"pipeline_run_id": pipeline_run_id, "status": "running"}
+
+
+@router.get("/pipelines")
+async def get_pipelines(limit: int = 50):
+    """List pipeline runs."""
+    return await list_pipeline_runs(limit=limit)
+
+
+@router.get("/pipelines/{pipeline_run_id}")
+async def get_pipeline_detail(pipeline_run_id: int):
+    """Get pipeline run details including all agent runs."""
+    pipeline_run = await get_pipeline_run(pipeline_run_id)
+    if not pipeline_run:
+        raise HTTPException(status_code=404, detail="Pipeline run not found")
+    agent_runs = await get_pipeline_agent_runs(pipeline_run_id)
+    return {"pipeline_run": pipeline_run, "agent_runs": agent_runs}
 
 
 @router.get("/runs")
