@@ -1,8 +1,12 @@
 import { useState, useEffect } from 'react'
 
+const SUGGESTED_TAGS = ['contractor', 'realtor', 'service-pro', 'small-business', 'newsletter', 'youtube', 'social', 'playbook', 'guide', 'course', 'lead-magnet', 'case-study', 'draft', 'published']
+
 export default function OutputPage({ runId, onNavigate }) {
   const [run, setRun] = useState(null)
   const [polling, setPolling] = useState(true)
+  const [tags, setTags] = useState([])
+  const [newTag, setNewTag] = useState('')
 
   useEffect(() => {
     if (!runId) return
@@ -17,11 +21,29 @@ export default function OutputPage({ runId, onNavigate }) {
     }
 
     fetchRun()
-    if (!polling) return
+    fetch(`/api/runs/${runId}/tags`).then((r) => r.json()).then(setTags)
 
+    if (!polling) return
     const interval = setInterval(fetchRun, 2000)
     return () => clearInterval(interval)
   }, [runId, polling])
+
+  const addTag = async (tagName) => {
+    const tag = tagName.trim().toLowerCase()
+    if (!tag || tags.includes(tag)) return
+    await fetch(`/api/runs/${runId}/tags`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tag }),
+    })
+    setTags([...tags, tag])
+    setNewTag('')
+  }
+
+  const removeTag = async (tag) => {
+    await fetch(`/api/runs/${runId}/tags/${tag}`, { method: 'DELETE' })
+    setTags(tags.filter((t) => t !== tag))
+  }
 
   if (!run) return <div className="text-gray-400">Loading...</div>
 
@@ -41,6 +63,39 @@ export default function OutputPage({ runId, onNavigate }) {
       <div className="text-gray-400 text-sm mb-4">
         Started: {new Date(run.created_at).toLocaleString()}
         {run.completed_at && <span className="ml-4">Completed: {new Date(run.completed_at).toLocaleString()}</span>}
+      </div>
+
+      {/* Tags */}
+      <div className="mb-6">
+        <div className="flex flex-wrap gap-2 items-center mb-2">
+          {tags.map((tag) => (
+            <span key={tag} className="bg-blue-600/20 text-blue-400 px-2.5 py-1 rounded-full text-xs flex items-center gap-1.5">
+              {tag}
+              <button onClick={() => removeTag(tag)} className="hover:text-white">&times;</button>
+            </span>
+          ))}
+          <div className="flex items-center gap-1">
+            <input
+              type="text"
+              value={newTag}
+              onChange={(e) => setNewTag(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && addTag(newTag)}
+              placeholder="Add tag..."
+              className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-xs w-24 text-white placeholder-gray-500"
+            />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1">
+          {SUGGESTED_TAGS.filter((t) => !tags.includes(t)).slice(0, 8).map((tag) => (
+            <button
+              key={tag}
+              onClick={() => addTag(tag)}
+              className="text-xs text-gray-500 hover:text-gray-300 bg-gray-800/50 px-2 py-0.5 rounded"
+            >
+              +{tag}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-4 mb-6">
