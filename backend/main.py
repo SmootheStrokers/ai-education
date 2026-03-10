@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path="../.env")
 
 from database import init_db
+from routes import router
 
 
 @asynccontextmanager
@@ -24,6 +25,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.include_router(router)
 
 
 @app.get("/api/health")
