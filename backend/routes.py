@@ -1,9 +1,12 @@
 import asyncio
 import json
+import os
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import HTMLResponse, FileResponse
 from pydantic import BaseModel
 from database import create_run, complete_run, fail_run, get_run, list_runs
 from agents import AGENT_REGISTRY
+from html_generator import generate_html, save_html
 
 router = APIRouter(prefix="/api")
 
@@ -85,14 +88,29 @@ async def run_agent(request: AgentRunRequest):
 
 
 async def _execute_agent(run_id: int, agent_type: str, params: dict):
-    """Execute an agent and update the database with results."""
+    """Execute an agent, generate HTML output, and update the database."""
     try:
         agent_class = AGENT_REGISTRY[agent_type]
         agent = agent_class()
-        # Run synchronous Claude API call in thread pool
         loop = asyncio.get_event_loop()
+
+        # Step 1: Run the agent to get markdown output
         result = await loop.run_in_executor(None, agent.run, params)
-        await complete_run(run_id, result)
+
+        # Step 2: Generate production-grade HTML from the markdown
+        html_path = None
+        try:
+            html_content = await loop.run_in_executor(
+                None, generate_html, result, agent_type, params
+            )
+            html_path = await loop.run_in_executor(
+                None, save_html, html_content, agent_type, params
+            )
+        except Exception as html_err:
+            # HTML generation failure shouldn't fail the whole run
+            print(f"HTML generation failed for run {run_id}: {html_err}")
+
+        await complete_run(run_id, result, html_output_path=html_path)
     except Exception as e:
         await fail_run(run_id, str(e))
 
@@ -111,3 +129,38 @@ async def get_run_detail(run_id: int):
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     return run
+
+
+@router.get("/runs/{run_id}/html")
+async def get_run_html(run_id: int):
+    """Serve the generated HTML file for a run."""
+    run = await get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not run.get("html_output_path"):
+        raise HTTPException(status_code=404, detail="No HTML output available")
+    if not os.path.exists(run["html_output_path"]):
+        raise HTTPException(status_code=404, detail="HTML file not found on disk")
+
+    with open(run["html_output_path"], "r", encoding="utf-8") as f:
+        html_content = f.read()
+    return HTMLResponse(content=html_content)
+
+
+@router.get("/runs/{run_id}/download")
+async def download_run_html(run_id: int):
+    """Download the generated HTML file for a run."""
+    run = await get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not run.get("html_output_path"):
+        raise HTTPException(status_code=404, detail="No HTML output available")
+    if not os.path.exists(run["html_output_path"]):
+        raise HTTPException(status_code=404, detail="HTML file not found on disk")
+
+    filename = os.path.basename(run["html_output_path"])
+    return FileResponse(
+        run["html_output_path"],
+        media_type="text/html",
+        filename=filename,
+    )

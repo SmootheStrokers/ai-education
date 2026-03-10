@@ -15,10 +15,16 @@ async def init_db():
                 input_params TEXT NOT NULL,
                 output TEXT,
                 error TEXT,
+                html_output_path TEXT,
                 created_at TEXT NOT NULL,
                 completed_at TEXT
             )
         """)
+        # Add html_output_path column if upgrading from older schema
+        try:
+            await db.execute("ALTER TABLE agent_runs ADD COLUMN html_output_path TEXT")
+        except Exception:
+            pass  # Column already exists
         await db.commit()
 
 
@@ -32,11 +38,11 @@ async def create_run(agent_type: str, input_params: str) -> int:
         return cursor.lastrowid
 
 
-async def complete_run(run_id: int, output: str):
+async def complete_run(run_id: int, output: str, html_output_path: str | None = None):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE agent_runs SET status = ?, output = ?, completed_at = ? WHERE id = ?",
-            ("completed", output, datetime.utcnow().isoformat(), run_id),
+            "UPDATE agent_runs SET status = ?, output = ?, html_output_path = ?, completed_at = ? WHERE id = ?",
+            ("completed", output, html_output_path, datetime.utcnow().isoformat(), run_id),
         )
         await db.commit()
 

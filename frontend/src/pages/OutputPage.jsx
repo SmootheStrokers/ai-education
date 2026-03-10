@@ -55,9 +55,28 @@ export default function OutputPage({ runId, onNavigate }) {
         </div>
       )}
 
+      {run.status === 'completed' && run.html_output_path && (
+        <div className="flex gap-3 mb-6">
+          <a
+            href={`/api/runs/${runId}/html`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-blue-600 hover:bg-blue-500 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2"
+          >
+            <span>&#x2197;</span> View HTML
+          </a>
+          <a
+            href={`/api/runs/${runId}/download`}
+            className="bg-gray-700 hover:bg-gray-600 px-5 py-2.5 rounded-lg text-sm font-medium transition-colors inline-flex items-center gap-2"
+          >
+            <span>&#x2913;</span> Download HTML
+          </a>
+        </div>
+      )}
+
       {run.status === 'completed' && run.output && (
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
-          <h3 className="text-sm text-gray-400 mb-4">Output</h3>
+          <h3 className="text-sm text-gray-400 mb-4">Markdown Output</h3>
           <div className="prose prose-invert max-w-none whitespace-pre-wrap text-gray-200 leading-relaxed">
             {run.output}
           </div>
