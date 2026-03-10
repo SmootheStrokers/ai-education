@@ -25,14 +25,34 @@ async def init_db():
             await db.execute("ALTER TABLE agent_runs ADD COLUMN html_output_path TEXT")
         except Exception:
             pass  # Column already exists
+        await db.execute("""
+            CREATE TABLE IF NOT EXISTS pipeline_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                steps TEXT NOT NULL,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                completed_at TEXT
+            )
+        """)
+        # Add pipeline_run_id to agent_runs if not present
+        try:
+            await db.execute("ALTER TABLE agent_runs ADD COLUMN pipeline_run_id INTEGER")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE agent_runs ADD COLUMN step_index INTEGER")
+        except Exception:
+            pass
         await db.commit()
 
 
-async def create_run(agent_type: str, input_params: str) -> int:
+async def create_run(agent_type: str, input_params: str, pipeline_run_id: int | None = None, step_index: int | None = None) -> int:
     async with aiosqlite.connect(DB_PATH) as db:
         cursor = await db.execute(
-            "INSERT INTO agent_runs (agent_type, status, input_params, created_at) VALUES (?, ?, ?, ?)",
-            (agent_type, "running", input_params, datetime.utcnow().isoformat()),
+            "INSERT INTO agent_runs (agent_type, status, input_params, pipeline_run_id, step_index, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+            (agent_type, "running", input_params, pipeline_run_id, step_index, datetime.utcnow().isoformat()),
         )
         await db.commit()
         return cursor.lastrowid
@@ -76,5 +96,62 @@ async def list_runs(agent_type: str | None = None, limit: int = 50) -> list[dict
             cursor = await db.execute(
                 "SELECT * FROM agent_runs ORDER BY created_at DESC LIMIT ?", (limit,)
             )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def create_pipeline_run(name: str, steps: str) -> int:
+    async with aiosqlite.connect(DB_PATH) as db:
+        cursor = await db.execute(
+            "INSERT INTO pipeline_runs (name, status, steps, created_at) VALUES (?, ?, ?, ?)",
+            (name, "running", steps, datetime.utcnow().isoformat()),
+        )
+        await db.commit()
+        return cursor.lastrowid
+
+
+async def get_pipeline_run(run_id: int) -> dict | None:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute("SELECT * FROM pipeline_runs WHERE id = ?", (run_id,))
+        row = await cursor.fetchone()
+        return dict(row) if row else None
+
+
+async def list_pipeline_runs(limit: int = 50) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM pipeline_runs ORDER BY created_at DESC LIMIT ?", (limit,)
+        )
+        rows = await cursor.fetchall()
+        return [dict(row) for row in rows]
+
+
+async def complete_pipeline_run(run_id: int):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE pipeline_runs SET status = ?, completed_at = ? WHERE id = ?",
+            ("completed", datetime.utcnow().isoformat(), run_id),
+        )
+        await db.commit()
+
+
+async def fail_pipeline_run(run_id: int, error: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE pipeline_runs SET status = ?, error = ?, completed_at = ? WHERE id = ?",
+            ("failed", error, datetime.utcnow().isoformat(), run_id),
+        )
+        await db.commit()
+
+
+async def get_pipeline_agent_runs(pipeline_run_id: int) -> list[dict]:
+    async with aiosqlite.connect(DB_PATH) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT * FROM agent_runs WHERE pipeline_run_id = ? ORDER BY step_index",
+            (pipeline_run_id,),
+        )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
