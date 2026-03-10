@@ -19,7 +19,7 @@ class BaseAgent:
         user_prompt = self.build_prompt(params)
         response = self.client.messages.create(
             model=self.model,
-            max_tokens=4096,
+            max_tokens=16000,
             system=self.system_prompt,
             messages=[{"role": "user", "content": user_prompt}],
         )
