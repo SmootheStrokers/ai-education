@@ -16,8 +16,16 @@ class BaseAgent:
     def build_prompt(self, params: dict) -> str:
         raise NotImplementedError
 
-    def run(self, params: dict) -> str:
+    def _build_full_prompt(self, params: dict) -> str:
+        """Build the user prompt, appending source material if present."""
         user_prompt = self.build_prompt(params)
+        source_material = params.get("source_material", "")
+        if source_material:
+            user_prompt += f"\n\n## SOURCE MATERIAL FROM PRIOR RESEARCH\nUse this as context and foundation. Extract key data points, insights, and examples to enhance your output:\n\n{source_material}"
+        return user_prompt
+
+    def run(self, params: dict) -> str:
+        user_prompt = self._build_full_prompt(params)
 
         kwargs = dict(
             model=self.model,
