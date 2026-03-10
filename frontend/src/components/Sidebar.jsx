@@ -2,6 +2,7 @@ const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: '~' },
   { id: 'agents', label: 'Run Agent', icon: '>' },
   { id: 'pipelines', label: 'Pipelines', icon: '|' },
+  { id: 'library', label: 'Library', icon: '@' },
   { id: 'history', label: 'History', icon: '#' },
 ]
 
