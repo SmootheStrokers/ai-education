@@ -18,3 +18,9 @@ dist/
 # IDE
 .vscode/
 .idea/
+
+# Worktrees
+.worktrees/
+
+# Outputs
+outputs/
