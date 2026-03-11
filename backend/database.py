@@ -45,6 +45,14 @@ async def init_db():
             await db.execute("ALTER TABLE agent_runs ADD COLUMN step_index INTEGER")
         except Exception:
             pass
+        try:
+            await db.execute("ALTER TABLE agent_runs ADD COLUMN review_status TEXT DEFAULT 'pending'")
+        except Exception:
+            pass
+        try:
+            await db.execute("ALTER TABLE agent_runs ADD COLUMN video_output_path TEXT")
+        except Exception:
+            pass
         await db.execute("""
             CREATE TABLE IF NOT EXISTS tags (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,11 +79,11 @@ async def create_run(agent_type: str, input_params: str, pipeline_run_id: int | 
         return cursor.lastrowid
 
 
-async def complete_run(run_id: int, output: str, html_output_path: str | None = None):
+async def complete_run(run_id: int, output: str, html_output_path: str | None = None, video_output_path: str | None = None):
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
-            "UPDATE agent_runs SET status = ?, output = ?, html_output_path = ?, completed_at = ? WHERE id = ?",
-            ("completed", output, html_output_path, datetime.utcnow().isoformat(), run_id),
+            "UPDATE agent_runs SET status = ?, output = ?, html_output_path = ?, video_output_path = ?, completed_at = ? WHERE id = ?",
+            ("completed", output, html_output_path, video_output_path, datetime.utcnow().isoformat(), run_id),
         )
         await db.commit()
 
@@ -205,6 +213,15 @@ async def list_all_tags() -> list[str]:
         cursor = await db.execute("SELECT name FROM tags ORDER BY name")
         rows = await cursor.fetchall()
         return [row[0] for row in rows]
+
+
+async def update_review_status(run_id: int, review_status: str):
+    async with aiosqlite.connect(DB_PATH) as db:
+        await db.execute(
+            "UPDATE agent_runs SET review_status = ? WHERE id = ?",
+            (review_status, run_id),
+        )
+        await db.commit()
 
 
 async def list_runs_by_tag(tag_name: str, limit: int = 50) -> list[dict]:

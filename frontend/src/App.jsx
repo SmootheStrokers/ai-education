@@ -6,6 +6,8 @@ import HistoryPage from './pages/HistoryPage'
 import OutputPage from './pages/OutputPage'
 import PipelinesPage from './pages/PipelinesPage'
 import LibraryPage from './pages/LibraryPage'
+import AgentOutputsPage from './pages/AgentOutputsPage'
+import AnalyticsPage from './pages/AnalyticsPage'
 
 function App() {
   const [currentPage, setCurrentPage] = useState('dashboard')
@@ -24,8 +26,10 @@ function App() {
       {currentPage === 'agents' && <AgentsPage onNavigate={navigate} />}
       {currentPage === 'pipelines' && <PipelinesPage onNavigate={navigate} presetId={selectedPresetId} />}
       {currentPage === 'library' && <LibraryPage onNavigate={navigate} />}
+      {currentPage === 'outputs' && <AgentOutputsPage onNavigate={navigate} />}
       {currentPage === 'history' && <HistoryPage onNavigate={navigate} />}
       {currentPage === 'output' && <OutputPage runId={selectedRunId} onNavigate={navigate} />}
+      {currentPage === 'analytics' && <AnalyticsPage />}
     </Layout>
   )
 }

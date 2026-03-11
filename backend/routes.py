@@ -8,11 +8,14 @@ from database import (
     create_run, complete_run, fail_run, get_run, list_runs,
     create_pipeline_run, get_pipeline_run, list_pipeline_runs, get_pipeline_agent_runs,
     add_tag_to_run, remove_tag_from_run, get_run_tags, list_all_tags, list_runs_by_tag,
+    update_review_status,
 )
 from pipeline_executor import execute_pipeline
 from agents import AGENT_REGISTRY
-from html_generator import generate_html, save_html
+from html_generator import save_html
+import design_agent
 from presets import get_all_presets, get_preset_by_id
+from video_renderer import render_video, is_remotion_available, get_render_progress
 
 router = APIRouter(prefix="/api")
 
@@ -29,6 +32,10 @@ class PipelineRunRequest(BaseModel):
 
 class TagRequest(BaseModel):
     tag: str
+
+
+class ReviewStatusRequest(BaseModel):
+    review_status: str
 
 
 @router.get("/agents")
@@ -84,6 +91,17 @@ async def get_agents():
                 "key_benefit": {"type": "text", "label": "Key Benefit", "required": True, "placeholder": "e.g., save 20 hours per month with AI"},
             },
         },
+        "video": {
+            "name": "Video Agent",
+            "description": "Generate AI-powered videos using Remotion (explainer, promo, social clip, presentation)",
+            "params": {
+                "video_type": {"type": "select", "label": "Video Type", "required": True, "options": ["explainer", "promo", "social_clip", "presentation"]},
+                "topic": {"type": "text", "label": "Topic", "required": True, "placeholder": "e.g., 5 AI Tools That Save 20+ Hours Per Week"},
+                "orientation": {"type": "select", "label": "Orientation", "required": True, "options": ["landscape", "portrait", "square"]},
+                "target_duration": {"type": "select", "label": "Target Duration", "required": True, "options": ["30", "60", "90", "120", "180"]},
+                "source_material": {"type": "textarea", "label": "Source Material (optional)", "required": False, "placeholder": "Paste research or notes here"},
+            },
+        },
     }
     return agents
 
@@ -127,20 +145,32 @@ async def _execute_agent(run_id: int, agent_type: str, params: dict):
         # Step 1: Run the agent to get markdown output
         result = await loop.run_in_executor(None, agent.run, params)
 
-        # Step 2: Generate production-grade HTML from the markdown
+        # Step 2: Generate type-specific HTML from the markdown
+        # Skip HTML generation for video agent — its output is JSON, not markdown.
         html_path = None
-        try:
-            html_content = await loop.run_in_executor(
-                None, generate_html, result, agent_type, params
-            )
-            html_path = await loop.run_in_executor(
-                None, save_html, html_content, agent_type, params
-            )
-        except Exception as html_err:
-            # HTML generation failure shouldn't fail the whole run
-            print(f"HTML generation failed for run {run_id}: {html_err}")
+        if agent_type != "video":
+            try:
+                html_content = await loop.run_in_executor(
+                    None, design_agent.generate, result, agent_type, params
+                )
+                html_path = await loop.run_in_executor(
+                    None, save_html, html_content, agent_type, params
+                )
+            except Exception as html_err:
+                # HTML generation failure shouldn't fail the whole run
+                print(f"HTML generation failed for run {run_id}: {html_err}")
 
-        await complete_run(run_id, result, html_output_path=html_path)
+        # Step 3: For video agent, render MP4 via Remotion
+        video_path = None
+        if agent_type == "video":
+            try:
+                video_path = await loop.run_in_executor(
+                    None, render_video, result, params, run_id
+                )
+            except Exception as vid_err:
+                print(f"Video rendering failed for run {run_id}: {vid_err}")
+
+        await complete_run(run_id, result, html_output_path=html_path, video_output_path=video_path)
     except Exception as e:
         await fail_run(run_id, str(e))
 
@@ -229,6 +259,71 @@ async def download_run_html(run_id: int):
         media_type="text/html",
         filename=filename,
     )
+
+
+@router.get("/runs/{run_id}/video")
+async def get_run_video(run_id: int):
+    """Serve the rendered video file for a run."""
+    run = await get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not run.get("video_output_path"):
+        raise HTTPException(status_code=404, detail="No video output available")
+    if not os.path.exists(run["video_output_path"]):
+        raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+    return FileResponse(
+        run["video_output_path"],
+        media_type="video/mp4",
+    )
+
+
+@router.get("/runs/{run_id}/video/progress")
+async def get_video_progress(run_id: int):
+    """Get video render progress for a run."""
+    progress = get_render_progress(run_id)
+    if progress is None:
+        run = await get_run(run_id)
+        if not run:
+            raise HTTPException(status_code=404, detail="Run not found")
+        if run.get("video_output_path"):
+            return {"progress": 100, "stage": "Complete"}
+        if run.get("status") == "failed":
+            return {"progress": 0, "stage": "Failed"}
+        return {"progress": 0, "stage": "Queued"}
+    return progress
+
+
+@router.get("/runs/{run_id}/video/download")
+async def download_run_video(run_id: int):
+    """Download the rendered video file for a run."""
+    run = await get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not run.get("video_output_path"):
+        raise HTTPException(status_code=404, detail="No video output available")
+    if not os.path.exists(run["video_output_path"]):
+        raise HTTPException(status_code=404, detail="Video file not found on disk")
+
+    filename = os.path.basename(run["video_output_path"])
+    return FileResponse(
+        run["video_output_path"],
+        media_type="video/mp4",
+        filename=filename,
+    )
+
+
+@router.patch("/runs/{run_id}/review")
+async def set_review_status(run_id: int, request: ReviewStatusRequest):
+    """Update the review status of a run."""
+    valid = {"pending", "approved", "exported", "rejected"}
+    if request.review_status not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid status. Must be one of: {valid}")
+    run = await get_run(run_id)
+    if not run:
+        raise HTTPException(status_code=404, detail="Run not found")
+    await update_review_status(run_id, request.review_status)
+    return {"status": "ok", "review_status": request.review_status}
 
 
 @router.post("/runs/{run_id}/tags")

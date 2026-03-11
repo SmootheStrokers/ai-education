@@ -9,7 +9,8 @@ from database import (
     fail_pipeline_run,
 )
 from agents import AGENT_REGISTRY
-from html_generator import generate_html, save_html
+from html_generator import save_html
+import design_agent
 
 
 async def execute_pipeline(pipeline_run_id: int, name: str, steps: list[dict]):
@@ -46,7 +47,7 @@ async def execute_pipeline(pipeline_run_id: int, name: str, steps: list[dict]):
             html_path = None
             try:
                 html_content = await loop.run_in_executor(
-                    None, generate_html, result, agent_type, params
+                    None, design_agent.generate, result, agent_type, params
                 )
                 html_path = await loop.run_in_executor(
                     None, save_html, html_content, agent_type, params

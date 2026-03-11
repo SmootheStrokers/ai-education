@@ -7,7 +7,7 @@ class BaseAgent:
 
     agent_type: str = "base"
     system_prompt: str = "You are a helpful assistant."
-    model: str = "claude-sonnet-4-20250514"
+    model: str = "claude-haiku-4-5-20251001"
     use_web_search: bool = True
 
     def __init__(self):
